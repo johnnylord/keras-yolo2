@@ -84,7 +84,7 @@ class YoloDataGenerator(keras.utils.Sequence):
 
     def on_epoch_end(self):
         if self.shuffle:
-            np.random.shuffle(self.annotations)
+            np.random.shuffle(self.images)
 
     def _get_box_predictor_id(self, shape):
         anchors = np.reshape(np.array(self.config['ANCHORS']), (-1, 2))
