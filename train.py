@@ -60,6 +60,10 @@ def _main(args):
                 labels=config['model']['labels'],
                 anchors=config['model']['anchors'])
 
+    if os.path.exists(config['train']['pretrained_weights']):
+        print("Loading pre-trained weights in", config['train']['pretrained_weights'])
+        yolo.model.load_weights(config['train']['pretrained_weights'])
+
     # Start the training process
     # ==========================
     yolo.train(train_images, # the list of images to train the model
