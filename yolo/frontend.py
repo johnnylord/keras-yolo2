@@ -73,7 +73,7 @@ class YOLO(object):
         pred_box_xy = tf.cast(tf.sigmoid(y_pred[...,:2]) + cell_grid, tf.float32)
 
         # adjust w & h (batch, grid_h, grid_w, nb_box, [w,h])
-        pred_box_wh = tf.cast(tf.exp(tf.tanh(y_pred[...,2:4])) * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
+        pred_box_wh = tf.cast(tf.exp(tf.tanh(y_pred[...,2:4])) * 5 * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
 
         # adjust confidence (batch, grid_h, grid_w, nb_box)
         pred_box_conf = tf.cast(tf.sigmoid(y_pred[..., 4]), tf.float32)
