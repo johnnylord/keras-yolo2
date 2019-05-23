@@ -76,6 +76,8 @@ def _main(args):
                 config['train']['saved_weights_name'],
                 config['train']['debug'])
 
+    # Train Complete
+    print("YOLO TRAINING HAS STOPPED")
 
 if __name__ == '__main__':
     args = argparser.parse_args()

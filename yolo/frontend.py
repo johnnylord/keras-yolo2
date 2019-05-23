@@ -11,7 +11,7 @@ from yolo.backend import TinyYoloFeature
 from utils.generator import YoloDataGenerator
 
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 class YOLO(object):
     """YOLO network"""
@@ -36,7 +36,6 @@ class YOLO(object):
         else:
             raise Exception('YOLO does not support {} backend'.format(backend))
 
-        print(self.feature_extractor.get_output_shape())
         self.grid_h, self.grid_w = self.feature_extractor.get_output_shape()
         features = self.feature_extractor.extract(input_image)
 
@@ -186,13 +185,13 @@ class YOLO(object):
 
         # Make a few callbacks
         # ====================
-        early_stop = EarlyStopping(monitor='loss',
+        early_stop = EarlyStopping(monitor='val_loss',
                                 min_delta=0.001,
                                 patience=5,
                                 mode='min',
                                 verbose=1)
         checkpoint = ModelCheckpoint(saved_weights_name,
-                                    monitor='loss',
+                                    monitor='val_loss',
                                     verbose=1,
                                     save_best_only=True,
                                     mode='min',
