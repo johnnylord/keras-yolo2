@@ -1,0 +1,7 @@
+.ipynb_checkpoints/
+dataset/
+.DS_Store/
+logs/
+__pycache__/
+
+*.ipynb

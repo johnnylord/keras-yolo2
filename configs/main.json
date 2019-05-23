@@ -1,0 +1,26 @@
+{
+    "model": {
+        "backend":      "Tiny Yolo",
+        "input_size":   416,
+        "anchors":      [1.33091415, 1.41573371, 2.91047991, 3.50333593, 6.71860284, 4.48328881, 4.71315557, 7.49396648, 10.27989247, 10.16008226],
+        "labels":       ["aquarium", "bottle","bowl","box","bucket","plastic_bag","plate","styrofoam","tire","toilet","tub","washing_machine","water_tower"]
+    },
+
+    "train": {
+        "train_image_folder":   "dataset/train/sediment_images/",
+        "train_annot_folder":   "dataset/train/sediment_annotations/",
+
+        "batch_size":           32,
+        "learning_rate":        1e-4,
+        "nb_epochs":            1,
+
+        "object_scale":         5.0,
+        "no_object_scale":      1.0,
+        "coord_scale":          1.0,
+        "class_scale":          1.0,
+
+        "pretrained_weights":   "",
+        "saved_weights_name":   "models/yolo_weights.h5",
+        "debug":                true
+    }
+}
