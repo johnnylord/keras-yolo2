@@ -73,7 +73,7 @@ class YOLO(object):
         pred_box_xy = tf.cast(tf.sigmoid(y_pred[...,:2]) + cell_grid, tf.float32)
 
         # adjust w & h (batch, grid_h, grid_w, nb_box, [w,h])
-        pred_box_wh = tf.cast(tf.exp(tf.tanh(y_pred[...,2:4])) * 5 * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
+        pred_box_wh = tf.cast(tf.sigmoid(y_pred[...,2:4]) * 3 * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
 
         # adjust confidence (batch, grid_h, grid_w, nb_box)
         pred_box_conf = tf.cast(tf.sigmoid(y_pred[..., 4]), tf.float32)
@@ -118,23 +118,22 @@ class YOLO(object):
         # ==================
         coord_mask = tf.cast(tf.expand_dims(y_true[..., 4], axis=-1) * self.coord_scale, tf.float32)
         conf_mask = tf.cast(y_true[..., 4] * self.object_scale, tf.float32)
-        noobj_conf_mask = tf.cast((1 - y_true[..., 4]) * self.no_object_scale, tf.float32)
+        noobj_conf_mask = tf.cast(tf.cast(true_box_conf < 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale, tf.float32)
         class_mask = tf.cast(tf.expand_dims(y_true[..., 4], axis=-1) * self.class_scale, tf.float32)
 
+        # Finalize the loss
         nb_coord_box = tf.reduce_sum(tf.cast(coord_mask > 0., tf.float32))
         nb_conf_box = tf.reduce_sum(tf.cast(conf_mask > 0., tf.float32))
         nb_noobj_conf_box = tf.reduce_sum(tf.cast(noobj_conf_mask > 0., tf.float32))
         nb_class_box = tf.reduce_sum(tf.cast(class_mask > 0., tf.float32))
 
-        # Finalize the loss
         loss_xy = tf.reduce_sum(tf.square(true_box_xy-pred_box_xy)*coord_mask) / nb_coord_box / 2.
         loss_wh = tf.reduce_sum(tf.square(tf.sqrt(true_box_wh)-tf.sqrt(pred_box_wh))*coord_mask) / nb_coord_box / 2.
         loss_conf = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf) * conf_mask) / nb_conf_box / 2.
         loss_noobj_conf = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf) * noobj_conf_mask) / nb_noobj_conf_box / 2.
         loss_class = tf.reduce_sum(tf.square(true_box_class-pred_box_class) * class_mask) / nb_class_box / 2.
 
-        loss = loss_xy + loss_wh + loss_conf + loss_noobj_conf + loss_class
-        return loss
+        return loss_xy + loss_wh + loss_conf + loss_noobj_conf + loss_class
 
     def train(self, train_images, # the list of images to train the mode
                     valid_images, # the list of images to validate the model
