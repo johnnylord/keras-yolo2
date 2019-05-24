@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Conv2D, Reshape
+from tensorflow.keras.layers import Input, Conv2D, Reshape, Lambda
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 from tensorflow.keras import Model
@@ -16,7 +16,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 class YOLO(object):
     """YOLO network"""
 
-    def __init__(self, backend, input_size, labels, anchors):
+    def __init__(self, backend, input_size, labels, anchors, max_box_per_image):
         self.input_size = input_size
         self.labels = labels
         self.anchors = anchors
@@ -24,9 +24,12 @@ class YOLO(object):
         self.nb_class = len(self.labels)
         self.nb_box = len(self.anchors) // 2
 
+        self.max_box_per_image = max_box_per_image
+
         # Construct the model
         # ===================
         input_image = Input(shape=(self.input_size, self.input_size, 3))
+        self.true_boxes = Input(shape=(1, 1, 1, max_box_per_image, 4))
 
         # Feature extraction layer
         if backend == 'Full Yolo':
@@ -46,12 +49,13 @@ class YOLO(object):
                         name='DetectionLayer')(features)
 
         output = Reshape((self.grid_h, self.grid_w, self.nb_box, 4+1+self.nb_class))(output)
+        output = Lambda(lambda args: args[0])([output, self.true_boxes])
 
         # Plug input and output into the model
-        self.model = Model(input_image, output)
+        self.model = Model([input_image, self.true_boxes], output)
 
         # Initialize the weights of the detection layer
-        layer = self.model.layers[-2]
+        layer = self.model.layers[-4]
         weights = layer.get_weights()
 
         new_kernel = np.random.normal(size=weights[0].shape)
@@ -61,11 +65,16 @@ class YOLO(object):
 
         # MODEL SUMMARY
         self.model.summary()
-    
+
     def _custom_loss(self, y_true, y_pred):
         cell_x = tf.cast(tf.reshape(tf.tile(tf.range(self.grid_w), [self.grid_h]), (1, self.grid_h, self.grid_w, 1, 1)), tf.float32)
         cell_y = tf.transpose(cell_x, (0,2,1,3,4))
         cell_grid = tf.tile(tf.concat([cell_x,cell_y], -1), [self.batch_size, 1, 1, self.nb_box, 1])
+
+        mask_shape = tf.shape(y_true)[:4]
+        coord_mask = tf.zeros(mask_shape)
+        conf_mask  = tf.zeros(mask_shape)
+        class_mask = tf.zeros(mask_shape)
 
         # Adjust prediction
         # =================
@@ -73,7 +82,7 @@ class YOLO(object):
         pred_box_xy = tf.cast(tf.sigmoid(y_pred[...,:2]) + cell_grid, tf.float32)
 
         # adjust w & h (batch, grid_h, grid_w, nb_box, [w,h])
-        pred_box_wh = tf.cast(tf.sigmoid(y_pred[...,2:4]) * 3 * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
+        pred_box_wh = tf.cast(tf.exp(tf.sigmoid(y_pred[...,2:4])*3) * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
 
         # adjust confidence (batch, grid_h, grid_w, nb_box)
         pred_box_conf = tf.cast(tf.sigmoid(y_pred[..., 4]), tf.float32)
@@ -116,24 +125,56 @@ class YOLO(object):
 
         # Determine the mask
         # ==================
+        # coordinate mask
         coord_mask = tf.cast(tf.expand_dims(y_true[..., 4], axis=-1) * self.coord_scale, tf.float32)
-        conf_mask = tf.cast(y_true[..., 4] * self.object_scale, tf.float32)
-        noobj_conf_mask = tf.cast(tf.cast(true_box_conf < 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale, tf.float32)
+
+        # confidence mask
+        true_xy = tf.cast(self.true_boxes[..., 0:2], tf.float32)
+        true_wh = tf.cast(self.true_boxes[..., 2:4], tf.float32)
+
+        true_wh_half = true_wh / 2.
+        true_mins    = true_xy - true_wh_half
+        true_maxes   = true_xy + true_wh_half
+
+        pred_xy = tf.expand_dims(pred_box_xy, 4)
+        pred_wh = tf.expand_dims(pred_box_wh, 4)
+
+        pred_wh_half = pred_wh / 2.
+        pred_mins    = pred_xy - pred_wh_half
+        pred_maxes   = pred_xy + pred_wh_half
+
+        intersect_mins  = tf.maximum(pred_mins,  true_mins)
+        intersect_maxes = tf.minimum(pred_maxes, true_maxes)
+        intersect_wh    = tf.maximum(intersect_maxes - intersect_mins, 0.)
+        intersect_areas = intersect_wh[..., 0] * intersect_wh[..., 1]
+
+        true_areas = true_wh[..., 0] * true_wh[..., 1]
+        pred_areas = pred_wh[..., 0] * pred_wh[..., 1]
+
+        union_areas = pred_areas + true_areas - intersect_areas
+        iou_scores  = tf.truediv(intersect_areas, union_areas)
+
+        best_ious = tf.reduce_max(iou_scores, axis=4)
+        conf_mask = conf_mask + tf.cast(best_ious < 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale
+
+        # penalize the confidence of the boxes, which are reponsible for corresponding ground truth box
+        conf_mask = conf_mask + y_true[..., 4] * self.object_scale
+
+        # class mask
         class_mask = tf.cast(tf.expand_dims(y_true[..., 4], axis=-1) * self.class_scale, tf.float32)
 
         # Finalize the loss
+        # =================
         nb_coord_box = tf.reduce_sum(tf.cast(coord_mask > 0., tf.float32))
         nb_conf_box = tf.reduce_sum(tf.cast(conf_mask > 0., tf.float32))
-        nb_noobj_conf_box = tf.reduce_sum(tf.cast(noobj_conf_mask > 0., tf.float32))
         nb_class_box = tf.reduce_sum(tf.cast(class_mask > 0., tf.float32))
 
         loss_xy = tf.reduce_sum(tf.square(true_box_xy-pred_box_xy)*coord_mask) / nb_coord_box / 2.
         loss_wh = tf.reduce_sum(tf.square(tf.sqrt(true_box_wh)-tf.sqrt(pred_box_wh))*coord_mask) / nb_coord_box / 2.
         loss_conf = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf) * conf_mask) / nb_conf_box / 2.
-        loss_noobj_conf = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf) * noobj_conf_mask) / nb_noobj_conf_box / 2.
         loss_class = tf.reduce_sum(tf.square(true_box_class-pred_box_class) * class_mask) / nb_class_box / 2.
 
-        return loss_xy + loss_wh + loss_conf + loss_noobj_conf + loss_class
+        return loss_xy + loss_wh + loss_conf + loss_class
 
     def train(self, train_images, # the list of images to train the mode
                     valid_images, # the list of images to validate the model
@@ -168,6 +209,7 @@ class YOLO(object):
             'BOX'       : self.nb_box,
             'LABELS'    : self.labels,
             'ANCHORS'   : self.anchors,
+            'TRUE_BOX_BUFFER' : self.max_box_per_image,
             'BATCH_SIZE': self.batch_size
         }
 

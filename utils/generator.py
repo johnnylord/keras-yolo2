@@ -29,6 +29,7 @@ class YoloDataGenerator(keras.utils.Sequence):
 
         # Setup the input/output batch placeholder
         input_batch = np.zeros((upper_bound-lower_bound, self.config['IMAGE_H'], self.config['IMAGE_W'], 3))
+        true_box_batch = np.zeros((upper_bound-lower_bound, 1, 1, 1, self.config['TRUE_BOX_BUFFER'], 4))
         output_batch = np.zeros((upper_bound-lower_bound, self.config['GRID_H'], self.config['GRID_W'], self.config['BOX'], 4+1+len(self.config['LABELS'])))
 
         # Proces each image per iteration
@@ -41,6 +42,7 @@ class YoloDataGenerator(keras.utils.Sequence):
             input_batch[n_sample] = self.norm(input_image)
 
             # Process each object in the image per iteration
+            true_box_index = 0
             for obj in image['objects']:
                 if obj['xmax'] > obj['xmin'] and obj['ymax'] > obj['ymin']:
                     # Original center position of the object
@@ -77,10 +79,16 @@ class YoloDataGenerator(keras.utils.Sequence):
                         output_batch[n_sample, grid_y, grid_x, box_id, 0:4] = box
                         output_batch[n_sample, grid_y, grid_x, box_id, 4] = 1.
                         output_batch[n_sample, grid_y, grid_x, box_id, 5+obj_id] = 1.
+
+                        # assign the true box to true_box_batch
+                        true_box_batch[n_sample, 0, 0, 0, true_box_index] = box
+
+                        true_box_index += 1
+                        true_box_index = true_box_index % self.config['TRUE_BOX_BUFFER']
                 else:
                     print(image['filename'])
 
-        return input_batch, output_batch
+        return [input_batch, true_box_batch], output_batch
 
     def on_epoch_end(self):
         if self.shuffle:

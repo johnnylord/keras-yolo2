@@ -3,6 +3,7 @@ dataset/
 .DS_Store/
 logs/
 __pycache__/
-pretrain
+pretrain/
+models/
 
 *.ipynb

@@ -2,6 +2,7 @@
     "model": {
         "backend":      "Tiny Yolo",
         "input_size":   416,
+        "max_box_per_image":    10,
         "anchors":      [1.33091415, 1.41573371, 2.91047991, 3.50333593, 6.71860284, 4.48328881, 4.71315557, 7.49396648, 10.27989247, 10.16008226],
         "labels":       ["aquarium", "bottle","bowl","box","bucket","plastic_bag","plate","styrofoam","tire","toilet","tub","washing_machine","water_tower"]
     },
