@@ -16,7 +16,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 class YOLO(object):
     """YOLO network"""
 
-    def __init__(self, backend, input_size, labels, anchors, max_box_per_image):
+    def __init__(self, backend, input_size, labels, anchors):
         self.input_size = input_size
         self.labels = labels
         self.anchors = anchors
@@ -24,12 +24,9 @@ class YOLO(object):
         self.nb_class = len(self.labels)
         self.nb_box = len(self.anchors) // 2
 
-        self.max_box_per_image = max_box_per_image
-
         # Construct the model
         # ===================
         input_image = Input(shape=(self.input_size, self.input_size, 3))
-        self.true_boxes = Input(shape=(1, 1, 1, max_box_per_image, 4))
 
         # Feature extraction layer
         if backend == 'Full Yolo':
@@ -49,17 +46,16 @@ class YOLO(object):
                         name='DetectionLayer')(features)
 
         output = Reshape((self.grid_h, self.grid_w, self.nb_box, 4+1+self.nb_class))(output)
-        output = Lambda(lambda args: args[0])([output, self.true_boxes])
 
         # Plug input and output into the model
-        self.model = Model([input_image, self.true_boxes], output)
+        self.model = Model(input_image, output)
 
         # Initialize the weights of the detection layer
-        layer = self.model.layers[-4]
+        layer = self.model.layers[-2]
         weights = layer.get_weights()
 
-        new_kernel = np.random.normal(size=weights[0].shape)
-        new_bias = np.random.normal(size=weights[1].shape)
+        new_kernel = np.random.random(size=weights[0].shape)
+        new_bias = np.random.random(size=weights[1].shape)
 
         layer.set_weights([new_kernel, new_bias])
 
@@ -123,50 +119,18 @@ class YOLO(object):
         # coordinate mask
         coord_mask = tf.cast(tf.expand_dims(y_true[..., 4], axis=-1) * self.coord_scale, tf.float32)
 
-        # confidence mask
-        true_xy = tf.cast(self.true_boxes[..., 0:2], tf.float32)
-        true_wh = tf.cast(self.true_boxes[..., 2:4], tf.float32)
-
-        true_wh_half = true_wh / 2.
-        true_mins    = true_xy - true_wh_half
-        true_maxes   = true_xy + true_wh_half
-
-        pred_xy = tf.expand_dims(pred_box_xy, 4)
-        pred_wh = tf.expand_dims(pred_box_wh, 4)
-
-        pred_wh_half = pred_wh / 2.
-        pred_mins    = pred_xy - pred_wh_half
-        pred_maxes   = pred_xy + pred_wh_half
-
-        intersect_mins  = tf.maximum(pred_mins,  true_mins)
-        intersect_maxes = tf.minimum(pred_maxes, true_maxes)
-        intersect_wh    = tf.maximum(intersect_maxes - intersect_mins, 0.)
-        intersect_areas = intersect_wh[..., 0] * intersect_wh[..., 1]
-
-        true_areas = true_wh[..., 0] * true_wh[..., 1]
-        pred_areas = pred_wh[..., 0] * pred_wh[..., 1]
-
-        union_areas = pred_areas + true_areas - intersect_areas
-        iou_scores  = tf.truediv(intersect_areas, union_areas)
-
-        best_ious = tf.reduce_max(iou_scores, axis=4)
-        conf_mask = tf.cast(best_ious > 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale
-
-        # penalize the confidence of the boxes, which are reponsible for corresponding ground truth box
-        conf_mask = conf_mask + y_true[..., 4] * self.object_scale
-
         # class mask
         class_mask = tf.cast(tf.expand_dims(y_true[..., 4], axis=-1) * self.class_scale, tf.float32)
 
         # Finalize the loss
         # =================
         nb_coord_box = tf.reduce_sum(tf.cast(coord_mask > 0., tf.float32))
-        nb_conf_box = tf.reduce_sum(tf.cast(conf_mask > 0., tf.float32))
         nb_class_box = tf.reduce_sum(tf.cast(class_mask > 0., tf.float32))
+        nb_conf_box = tf.reduce_sum(tf.cast(y_true[..., 4] >= 0., tf.float32))
 
         loss_xy = tf.reduce_sum(tf.square(true_box_xy-pred_box_xy)*coord_mask) / nb_coord_box / 2.
         loss_wh = tf.reduce_sum(tf.square(tf.sqrt(true_box_wh)-tf.sqrt(pred_box_wh))*coord_mask) / nb_coord_box / 2.
-        loss_conf = tf.reduce_sum(tf.exp(tf.square(true_box_conf-pred_box_conf)) * conf_mask) / nb_conf_box / 2.
+        loss_conf = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf)) / nb_conf_box / 2.
         loss_class = tf.reduce_sum(tf.square(true_box_class-pred_box_class) * class_mask) / nb_class_box / 2.
 
         return loss_xy + loss_wh + loss_conf + loss_class
@@ -204,7 +168,6 @@ class YOLO(object):
             'BOX'       : self.nb_box,
             'LABELS'    : self.labels,
             'ANCHORS'   : self.anchors,
-            'TRUE_BOX_BUFFER' : self.max_box_per_image,
             'BATCH_SIZE': self.batch_size
         }
 

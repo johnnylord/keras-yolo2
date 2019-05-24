@@ -58,8 +58,7 @@ def _main(args):
     yolo = YOLO(backend=config['model']['backend'],
                 input_size=config['model']['input_size'],
                 labels=config['model']['labels'],
-                anchors=config['model']['anchors'],
-                max_box_per_image=config['model']['max_box_per_image'])
+                anchors=config['model']['anchors'])
 
     if os.path.exists(config['train']['pretrained_weights']):
         print("Loading pre-trained weights in", config['train']['pretrained_weights'])
