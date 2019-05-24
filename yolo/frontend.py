@@ -150,7 +150,7 @@ class YOLO(object):
         iou_scores  = tf.truediv(intersect_areas, union_areas)
 
         best_ious = tf.reduce_max(iou_scores, axis=4)
-        conf_mask = tf.cast(best_ious < 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale
+        conf_mask = tf.cast(best_ious > 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale
 
         # penalize the confidence of the boxes, which are reponsible for corresponding ground truth box
         conf_mask = conf_mask + y_true[..., 4] * self.object_scale
@@ -166,7 +166,7 @@ class YOLO(object):
 
         loss_xy = tf.reduce_sum(tf.square(true_box_xy-pred_box_xy)*coord_mask) / nb_coord_box / 2.
         loss_wh = tf.reduce_sum(tf.square(tf.sqrt(true_box_wh)-tf.sqrt(pred_box_wh))*coord_mask) / nb_coord_box / 2.
-        loss_conf = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf) * conf_mask) / nb_conf_box / 2.
+        loss_conf = tf.reduce_sum(tf.exp(tf.square(true_box_conf-pred_box_conf)) * conf_mask) / nb_conf_box / 2.
         loss_class = tf.reduce_sum(tf.square(true_box_class-pred_box_class) * class_mask) / nb_class_box / 2.
 
         return loss_xy + loss_wh + loss_conf + loss_class
