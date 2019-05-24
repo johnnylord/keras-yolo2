@@ -71,18 +71,13 @@ class YOLO(object):
         cell_y = tf.transpose(cell_x, (0,2,1,3,4))
         cell_grid = tf.tile(tf.concat([cell_x,cell_y], -1), [self.batch_size, 1, 1, self.nb_box, 1])
 
-        mask_shape = tf.shape(y_true)[:4]
-        coord_mask = tf.zeros(mask_shape)
-        conf_mask  = tf.zeros(mask_shape)
-        class_mask = tf.zeros(mask_shape)
-
         # Adjust prediction
         # =================
         # adjust x & y (batch, grid_h, grid_w, nb_box, [x, y])
         pred_box_xy = tf.cast(tf.sigmoid(y_pred[...,:2]) + cell_grid, tf.float32)
 
         # adjust w & h (batch, grid_h, grid_w, nb_box, [w,h])
-        pred_box_wh = tf.cast(tf.exp(tf.sigmoid(y_pred[...,2:4])*3) * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
+        pred_box_wh = tf.cast(tf.exp(tf.sigmoid(y_pred[...,2:4])) * np.reshape(self.anchors, [1, 1, 1, self.nb_box, 2]), tf.float32)
 
         # adjust confidence (batch, grid_h, grid_w, nb_box)
         pred_box_conf = tf.cast(tf.sigmoid(y_pred[..., 4]), tf.float32)
@@ -108,7 +103,7 @@ class YOLO(object):
         pred_maxes = pred_box_xy + pred_wh_half
 
         intersect_mins = tf.maximum(pred_mins, true_mins)
-        intersect_maxes = tf.minimum(pred_mins, true_mins)
+        intersect_maxes = tf.minimum(pred_maxes, true_maxes)
         intersect_wh = tf.maximum(intersect_maxes - intersect_mins, 0.)
         intersect_areas = intersect_wh[..., 0] * intersect_wh[..., 1]
 
@@ -155,7 +150,7 @@ class YOLO(object):
         iou_scores  = tf.truediv(intersect_areas, union_areas)
 
         best_ious = tf.reduce_max(iou_scores, axis=4)
-        conf_mask = conf_mask + tf.cast(best_ious < 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale
+        conf_mask = tf.cast(best_ious < 0.6, tf.float32) * (1 - y_true[..., 4]) * self.no_object_scale
 
         # penalize the confidence of the boxes, which are reponsible for corresponding ground truth box
         conf_mask = conf_mask + y_true[..., 4] * self.object_scale
